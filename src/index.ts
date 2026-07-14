@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 dotenv.config();
@@ -66,8 +66,14 @@ async function run() {
     // Get all pizzas
     app.get('/api/pizza',  async (req: Request, res: Response) => {
       const pizzas = await pizzaCollection.find({}).toArray();
-      console.log(pizzas);
       res.json(pizzas);
+    });
+// Get a single pizza
+    app.get('/api/pizza/:id',  async (req: Request, res: Response) => {
+      const pizzaId = req.params.id as string;
+      const query:object = { _id: new ObjectId(pizzaId) };
+      const pizza = await pizzaCollection.findOne(query);
+      res.json(pizza);
     });
     app.listen(port, () => {
       console.log(`Example app listening on port ${port}`);
