@@ -226,6 +226,104 @@ async function run() {
         return res.status(500).json({ error: "Internal Server Error" });
       }
     });
+    // clear cart by userId
+    app.delete('/api/cart/clear/:userId', verifyToken, async (req: Request, res: Response) => {
+      try {
+        const { userId } = req.params;
+        const decodedToken = (req as any).userid;
+        const authUserId = decodedToken?.sub || userId;
+        if (authUserId !== userId) {
+          return res.status(403).json({ error: "Forbidden: You cannot modify other user's cart" });
+        }
+        const query = { userId: userId };
+        const cart = await cartCollection.findOne(query);
+        if (!cart) {
+          return res.status(404).json({ error: "Cart not found" });
+        }
+        const result = await cartCollection.deleteOne(query);
+        return res.json({
+          success: true,
+          message: "Cart deleted successfully",
+          result,
+        });
+      } catch (error) {
+        console.error("Cart Delete API Error:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+    })
+// ==========================================
+// Increase or Decrease Item Quantity in Cart via URL Params
+// ==========================================
+app.patch('/api/cart/update-quantity/:userId/:pizzaId/:size/:action', verifyToken, async (req: Request, res: Response) => {
+  try {
+    const { userId, pizzaId, size, action } = req.params; // 👈 Taking data from req.params instead of req.body
+
+    // Verify if the authenticated token user matches the requested userId (Security Check)
+    const decodedToken = (req as any).userid;
+    const authUserId = decodedToken?.sub || userId;
+
+    if (authUserId !== userId) {
+      return res.status(403).json({ error: "Forbidden: You cannot modify another user's cart" });
+    }
+
+    const query = { userId: userId };
+    const cart = await cartCollection.findOne(query);
+
+    if (!cart) {
+      return res.status(404).json({ error: "Cart not found" });
+    }
+
+    let itemFound = false;
+
+    // Map through current items to update the quantity of the targeted pizza size
+    const updatedItems = (cart.items || []).map((item: any) => {
+      if (item.pizzaId === pizzaId && item.size === size) {
+        itemFound = true;
+        
+        if (action === "increase") {
+          item.quantity += 1;
+        } else if (action === "decrease") {
+          // Prevent reducing quantity below 1
+          item.quantity = Math.max(1, item.quantity - 1); 
+        }
+      }
+      return item;
+    });
+
+    if (!itemFound) {
+      return res.status(404).json({ error: "Item not found in cart" });
+    }
+
+    // Recalculate the overall total price
+    const updatedTotalPrice = updatedItems.reduce(
+      (sum: number, item: any) => sum + item.unitPrice * item.quantity,
+      0
+    );
+
+    // Save updated values to the database
+    const result = await cartCollection.updateOne(
+      query,
+      {
+        $set: {
+          items: updatedItems,
+          totalPrice: updatedTotalPrice,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    return res.json({ 
+      success: true, 
+      message: `Quantity ${action}ed successfully`, 
+      updatedTotalPrice,
+      items: updatedItems
+    });
+
+  } catch (error) {
+    console.error("Update Quantity API Error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
     app.listen(port, () => {
       console.log(`Example app listening on port ${port}`);
