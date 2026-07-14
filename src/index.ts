@@ -163,6 +163,13 @@ async function run() {
         return res.status(500).json({ error: "Internal Server Error" });
       }
     });
+    // get cart by userId
+    app.get('/api/cart/get/:userId', async (req: Request, res: Response) => {
+      const userId = req.params.userId;
+      const query = { userId: userId };
+      const cart = await cartCollection.findOne(query);
+      res.json(cart);
+    });
 
     app.listen(port, () => {
       console.log(`Example app listening on port ${port}`);
