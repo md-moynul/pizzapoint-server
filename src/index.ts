@@ -170,6 +170,62 @@ async function run() {
       const cart = await cartCollection.findOne(query);
       res.json(cart);
     });
+    // delete cart by userId and pizzaId
+    // delete item from cart by userId, pizzaId, and size
+    app.delete('/api/cart/delete/:userId/:pizzaId/:size', verifyToken, async (req: Request, res: Response) => {
+      try {
+        const { userId, pizzaId, size } = req.params;
+
+        const decodedToken = (req as any).userid;
+        const authUserId = decodedToken?.sub || userId;
+
+        if (authUserId !== userId) {
+          return res.status(403).json({ error: "Forbidden: You cannot modify other user's cart" });
+        }
+
+        const query = { userId: userId };
+        const cart = await cartCollection.findOne(query);
+
+        if (!cart) {
+          return res.status(404).json({ error: "Cart not found" });
+        }
+        const initialItemCount = cart.items?.length || 0;
+        const updatedItems = (cart.items || []).filter(
+          (item: any) => !(item.pizzaId === pizzaId && item.size === size)
+        );
+        if (updatedItems.length === initialItemCount) {
+          return res.status(404).json({ error: "Item not found in cart" });
+        }
+
+        const updatedTotalPrice = updatedItems.reduce(
+          (sum: number, item: any) => sum + item.unitPrice * item.quantity,
+          0
+        );
+
+        
+        const result = await cartCollection.updateOne(
+          query,
+          {
+            $set: {
+              items: updatedItems,
+              totalPrice: updatedTotalPrice,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return res.json({
+          success: true,
+          message: "Specific item deleted successfully",
+          result,
+          totalPrice: updatedTotalPrice
+        });
+
+      } catch (error) {
+        console.error("Cart Delete API Error:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+    });
 
     app.listen(port, () => {
       console.log(`Example app listening on port ${port}`);
