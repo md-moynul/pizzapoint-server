@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose-cjs";
 
 dotenv.config();
 
@@ -43,7 +43,7 @@ const client = new MongoClient(uri, {
 });
 
 app.get("/", (req: Request, res: Response) => {
-  res.send("Hello World!");
+  res.send("PizzaPoint Server is running! 🚀");
 });
 
 async function run() {
@@ -54,7 +54,7 @@ async function run() {
     const cartCollection = db.collection("cart");
 
     // Get all users
-    app.get("/api/users", async (req: Request, res: Response) => {
+    app.get("/api/users", verifyToken, async (req: Request, res: Response) => {
       const users = await usersCollection.find({}).toArray();
       res.json(users);
     });
@@ -67,7 +67,22 @@ async function run() {
     });
     // Get all pizzas
     app.get('/api/pizza', async (req: Request, res: Response) => {
-      const pizzas = await pizzaCollection.find({}).toArray();
+      const { q, category, minPrice, maxPrice } = req.query;
+
+      const query: Record<string, any> = {};
+      if (q) {
+        query.name = { $regex: q, $options: 'i' };
+      }
+      if (category) {
+        query.category = category;
+      }
+      if (minPrice) {
+        query.price = { $gte: minPrice };
+      }
+      if (maxPrice) {
+        query.price = { $lte: maxPrice };
+      }
+      const pizzas = await pizzaCollection.find(query).toArray();
       res.json(pizzas);
     });
     // Get a single pizza
@@ -230,7 +245,7 @@ async function run() {
           0
         );
 
-        
+
         const result = await cartCollection.updateOne(
           query,
           {
@@ -279,79 +294,79 @@ async function run() {
         return res.status(500).json({ error: "Internal Server Error" });
       }
     })
-// ==========================================
-// Increase or Decrease Item Quantity in Cart via URL Params
-// ==========================================
-app.patch('/api/cart/update-quantity/:userId/:pizzaId/:size/:action', verifyToken, async (req: Request, res: Response) => {
-  try {
-    const { userId, pizzaId, size, action } = req.params; // 👈 Taking data from req.params instead of req.body
+    // ==========================================
+    // Increase or Decrease Item Quantity in Cart via URL Params
+    // ==========================================
+    app.patch('/api/cart/update-quantity/:userId/:pizzaId/:size/:action', verifyToken, async (req: Request, res: Response) => {
+      try {
+        const { userId, pizzaId, size, action } = req.params; // 👈 Taking data from req.params instead of req.body
 
-    // Verify if the authenticated token user matches the requested userId (Security Check)
-    const decodedToken = (req as any).userid;
-    const authUserId = decodedToken?.sub || userId;
+        // Verify if the authenticated token user matches the requested userId (Security Check)
+        const decodedToken = (req as any).userid;
+        const authUserId = decodedToken?.sub || userId;
 
-    if (authUserId !== userId) {
-      return res.status(403).json({ error: "Forbidden: You cannot modify another user's cart" });
-    }
-
-    const query = { userId: userId };
-    const cart = await cartCollection.findOne(query);
-
-    if (!cart) {
-      return res.status(404).json({ error: "Cart not found" });
-    }
-
-    let itemFound = false;
-
-    // Map through current items to update the quantity of the targeted pizza size
-    const updatedItems = (cart.items || []).map((item: any) => {
-      if (item.pizzaId === pizzaId && item.size === size) {
-        itemFound = true;
-        
-        if (action === "increase") {
-          item.quantity += 1;
-        } else if (action === "decrease") {
-          // Prevent reducing quantity below 1
-          item.quantity = Math.max(1, item.quantity - 1); 
+        if (authUserId !== userId) {
+          return res.status(403).json({ error: "Forbidden: You cannot modify another user's cart" });
         }
-      }
-      return item;
-    });
 
-    if (!itemFound) {
-      return res.status(404).json({ error: "Item not found in cart" });
-    }
+        const query = { userId: userId };
+        const cart = await cartCollection.findOne(query);
 
-    // Recalculate the overall total price
-    const updatedTotalPrice = updatedItems.reduce(
-      (sum: number, item: any) => sum + item.unitPrice * item.quantity,
-      0
-    );
-
-    // Save updated values to the database
-    const result = await cartCollection.updateOne(
-      query,
-      {
-        $set: {
-          items: updatedItems,
-          totalPrice: updatedTotalPrice,
-          updatedAt: new Date()
+        if (!cart) {
+          return res.status(404).json({ error: "Cart not found" });
         }
+
+        let itemFound = false;
+
+        // Map through current items to update the quantity of the targeted pizza size
+        const updatedItems = (cart.items || []).map((item: any) => {
+          if (item.pizzaId === pizzaId && item.size === size) {
+            itemFound = true;
+
+            if (action === "increase") {
+              item.quantity += 1;
+            } else if (action === "decrease") {
+              // Prevent reducing quantity below 1
+              item.quantity = Math.max(1, item.quantity - 1);
+            }
+          }
+          return item;
+        });
+
+        if (!itemFound) {
+          return res.status(404).json({ error: "Item not found in cart" });
+        }
+
+        // Recalculate the overall total price
+        const updatedTotalPrice = updatedItems.reduce(
+          (sum: number, item: any) => sum + item.unitPrice * item.quantity,
+          0
+        );
+
+        // Save updated values to the database
+        const result = await cartCollection.updateOne(
+          query,
+          {
+            $set: {
+              items: updatedItems,
+              totalPrice: updatedTotalPrice,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return res.json({
+          success: true,
+          message: `Quantity ${action}ed successfully`,
+          updatedTotalPrice,
+          items: updatedItems
+        });
+
+      } catch (error) {
+        console.error("Update Quantity API Error:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
       }
-    );
-
-    return res.json({ 
-      success: true, 
-      message: `Quantity ${action}ed successfully`, 
-      updatedTotalPrice,
-      items: updatedItems
     });
-
-  } catch (error) {
-    console.error("Update Quantity API Error:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
 
     app.listen(port, () => {
       console.log(`Example app listening on port ${port}`);
