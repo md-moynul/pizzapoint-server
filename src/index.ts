@@ -67,23 +67,80 @@ async function run() {
     });
     // Get all pizzas
     app.get('/api/pizza', async (req: Request, res: Response) => {
-      const { q, category, minPrice, maxPrice } = req.query;
+      try {
+        const { q, category, minPrice, maxPrice } = req.query;
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 8;
+        const skip = (page - 1) * limit;
 
-      const query: Record<string, any> = {};
-      if (q) {
-        query.name = { $regex: q, $options: 'i' };
+        const query: Record<string, any> = {};
+        if (q) {
+          query.name = { $regex: q as string, $options: 'i' };
+        }
+        if (category) {
+          query.category = category;
+        }
+
+        if (minPrice || maxPrice) {
+          query.price = {};
+          if (minPrice) query.price.$gte = Number(minPrice);
+          if (maxPrice) query.price.$lte = Number(maxPrice);
+        }
+
+        const pizzas = await pizzaCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalPizzas = await pizzaCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalPizzas / limit);
+
+        res.json({
+          success: true,
+          data: pizzas,
+          pagination: {
+            totalItems: totalPizzas,
+            totalPages: totalPages,
+            currentPage: page,
+            limit: limit
+          }
+        });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Server error", error });
       }
-      if (category) {
-        query.category = category;
+    });
+    // get Most loved pizzas
+    app.get('/api/pizza/loved', async (req: Request, res: Response) => {
+      try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 4;
+
+        const skip = (page - 1) * limit;
+
+        const query: Record<string, any> = {};
+
+        const pizzas = await pizzaCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalPizzas = await pizzaCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalPizzas / limit);
+        res.json({
+          success: true,
+          data: pizzas,
+          pagination: {
+            totalItems: totalPizzas,
+            totalPages: totalPages,
+            currentPage: page,
+            limit: limit
+          }
+        });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Server error", error });
       }
-      if (minPrice) {
-        query.price = { $gte: minPrice };
-      }
-      if (maxPrice) {
-        query.price = { $lte: maxPrice };
-      }
-      const pizzas = await pizzaCollection.find(query).toArray();
-      res.json(pizzas);
     });
     // Get a single pizza
     app.get('/api/pizza/:id', async (req: Request, res: Response) => {
