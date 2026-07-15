@@ -92,6 +92,18 @@ async function run() {
         result,
       });
     });
+    //  update pizza
+    app.patch('/api/pizza/:id', verifyToken, async (req: Request, res: Response) => {
+      const pizzaId = req.params.id as string;
+      const pizza = req.body;
+      const query: object = { _id: new ObjectId(pizzaId) };
+      const result = await pizzaCollection.updateOne(query, { $set: pizza });
+      return res.json({
+        success: true,
+        message: "Pizza updated successfully",
+        result,
+      });
+    });
 
     // add to cart
     app.post('/api/cart/add', verifyToken, async (req: Request, res: Response) => {
