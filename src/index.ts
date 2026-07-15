@@ -81,12 +81,12 @@ async function run() {
           query.category = category;
         }
 
-        if (minPrice || maxPrice) {
-          query.price = {};
-          if (minPrice) query.price.$gte = Number(minPrice);
-          if (maxPrice) query.price.$lte = Number(maxPrice);
+        if (minPrice) {
+          query.price = { $gte: minPrice };
         }
-
+        if (maxPrice) {
+          query.price = { $lte: maxPrice };
+        }
         const pizzas = await pizzaCollection
           .find(query)
           .skip(skip)
