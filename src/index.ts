@@ -13,7 +13,16 @@ app.use(cors());
 app.use(express.json());
 
 const uri = process.env.MONGO_URI as string;
-const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
+
+// Lazy JWKS initialization — created on first use so module load
+// doesn't crash when CLIENT_URL env var is missing.
+let _jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getJWKS() {
+  if (!_jwks) {
+    _jwks = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
+  }
+  return _jwks;
+}
 
 const verifyToken = async (req: Request, res: Response, next: Function) => {
   const authHeader = req.headers.authorization;
@@ -25,8 +34,7 @@ const verifyToken = async (req: Request, res: Response, next: Function) => {
     return res.status(401).send("Unauthorized")
   }
   try {
-
-    const { payload } = await jwtVerify(token, JWKS);
+    const { payload } = await jwtVerify(token, getJWKS());
     (req as any).userid = payload;
     next();
   } catch (error) {
@@ -66,6 +74,10 @@ async function run() {
       res.send(newPizza);
     });
     // Get all pizzas
+    app.get('/api/pizza/all', async (req: Request, res: Response) => {
+      const pizzas = await pizzaCollection.find({}).toArray();
+      res.json(pizzas);
+    })
     app.get('/api/pizza', async (req: Request, res: Response) => {
       try {
         const { q, category, minPrice, maxPrice } = req.query;
@@ -430,8 +442,13 @@ async function run() {
     });
   } catch (error) {
     console.error("MongoDB connection failed ❌", error);
-    process.exit(1);
+    // Don't call process.exit in serverless — log and let the request fail gracefully
+    console.error("Server will respond with errors until DB reconnects.");
   }
 }
 
+// Start connection (non-blocking for serverless cold starts)
 run().catch(console.dir);
+
+// Export app for Vercel serverless handler
+export default app;
