@@ -77,6 +77,22 @@ async function run() {
       const pizza = await pizzaCollection.findOne(query);
       res.json(pizza);
     });
+    //  delete pizza
+    app.delete('/api/pizza/:id', verifyToken, async (req: Request, res: Response) => {
+      const pizzaId = req.params.id as string;
+      const query: object = { _id: new ObjectId(pizzaId) };
+      const pizza = await pizzaCollection.findOne(query);
+      if (!pizza) {
+        return res.status(404).json({ error: "Pizza not found" });
+      }
+      const result = await pizzaCollection.deleteOne(query);
+      return res.json({
+        success: true,
+        message: "Pizza deleted successfully",
+        result,
+      });
+    });
+
     // add to cart
     app.post('/api/cart/add', verifyToken, async (req: Request, res: Response) => {
       try {
