@@ -188,6 +188,50 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
 });
 
     // Inventory / Pizza Making Items Endpoints
+    app.get('/api/inventory', async (req: Request, res: Response) => {
+      try {
+        const { q, category, status } = req.query;
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 8;
+        const skip = (page - 1) * limit;
+
+        const query: Record<string, any> = {};
+        if (q) {
+          query.name = { $regex: q as string, $options: 'i' };
+        }
+        if (category && category !== 'all') {
+          query.category = { $regex: new RegExp(`^${category}$`, 'i') };
+        }
+        if (status === 'low') {
+          query.$expr = { $lte: ["$quantity", "$minThreshold"] };
+        } else if (status === 'instock') {
+          query.$expr = { $gt: ["$quantity", "$minThreshold"] };
+        }
+
+        const items = await inventoryCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalItems = await inventoryCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalItems / limit) || 1;
+
+        return res.json({
+          success: true,
+          data: items,
+          pagination: {
+            totalItems,
+            totalPages,
+            currentPage: page,
+            limit,
+          },
+        });
+      } catch (error) {
+        return res.status(500).json({ success: false, error: "Failed to fetch inventory" });
+      }
+    });
+
     app.get('/api/inventory/all', async (req: Request, res: Response) => {
       try {
         const items = await inventoryCollection.find({}).toArray();
@@ -449,15 +493,19 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
         if (q) {
           query.name = { $regex: q as string, $options: 'i' };
         }
-        if (category) {
+        if (category && category !== 'all') {
           query.category = category;
         }
 
-        if (minPrice) {
-          query.price = { $gte: minPrice };
+        const priceConditions: Record<string, any> = {};
+        if (minPrice && !isNaN(Number(minPrice))) {
+          priceConditions.$gte = Number(minPrice);
         }
-        if (maxPrice) {
-          query.price = { $lte: maxPrice };
+        if (maxPrice && !isNaN(Number(maxPrice))) {
+          priceConditions.$lte = Number(maxPrice);
+        }
+        if (Object.keys(priceConditions).length > 0) {
+          query.price = priceConditions;
         }
         const pizzas = await pizzaCollection
           .find(query)
@@ -466,7 +514,7 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
           .toArray();
 
         const totalPizzas = await pizzaCollection.countDocuments(query);
-        const totalPages = Math.ceil(totalPizzas / limit);
+        const totalPages = Math.ceil(totalPizzas / limit) || 1;
 
         res.json({
           success: true,
