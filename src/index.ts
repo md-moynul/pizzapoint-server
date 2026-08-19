@@ -502,11 +502,16 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
         const deliveredOrdersCount = orders.filter((o: any) => (o.deliveryStatus || '').toLowerCase().trim() === 'delivered').length;
 
         let finalOrders = orders;
-        let pagination = undefined;
+        let pagination = {
+          totalItems: totalOrders,
+          totalPages: 1,
+          currentPage: 1,
+          limit: totalOrders,
+        };
 
         if (page || limit) {
           const pageNum = parseInt(page as string) || 1;
-          const limitNum = parseInt(limit as string) || 10;
+          const limitNum = parseInt(limit as string) || 8;
           const skip = (pageNum - 1) * limitNum;
           finalOrders = orders.slice(skip, skip + limitNum);
           pagination = {
@@ -531,10 +536,48 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
       }
     });
 
-    // Get all users
+    // Get all users (with server-side pagination)
     app.get("/api/users", verifyToken, async (req: Request, res: Response) => {
-      const users = await usersCollection.find({}).toArray();
-      res.json(users);
+      try {
+        const { q, role, page, limit } = req.query;
+        const pageNum = parseInt(page as string) || 1;
+        const limitNum = parseInt(limit as string) || 10;
+        const skip = (pageNum - 1) * limitNum;
+
+        const query: Record<string, any> = {};
+        if (q && typeof q === 'string' && q.trim()) {
+          const searchRegex = { $regex: q.trim(), $options: 'i' };
+          query.$or = [
+            { name: searchRegex },
+            { email: searchRegex },
+          ];
+        }
+        if (role && role !== 'all') {
+          query.role = { $regex: new RegExp(`^${role}$`, 'i') };
+        }
+
+        const users = await usersCollection
+          .find(query)
+          .skip(skip)
+          .limit(limitNum)
+          .toArray();
+
+        const totalUsers = await usersCollection.countDocuments(query);
+        const totalPages = Math.ceil(totalUsers / limitNum) || 1;
+
+        res.json({
+          success: true,
+          data: users,
+          pagination: {
+            totalItems: totalUsers,
+            totalPages: totalPages,
+            currentPage: pageNum,
+            limit: limitNum,
+          },
+        });
+      } catch (error) {
+        res.status(500).json({ success: false, error: "Failed to fetch users" });
+      }
     });
 
     // Add a new pizza
