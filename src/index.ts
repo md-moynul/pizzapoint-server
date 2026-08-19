@@ -456,10 +456,76 @@ app.patch('/api/settings', verifyToken, async (req: Request, res: Response) => {
 
     app.get('/api/orders/all', async (req: Request, res: Response) => {
       try {
-        const orders = await ordersCollection.find({}).sort({ createdAt: -1 }).toArray();
+        const { q, deliveryStatus, status, page, limit } = req.query;
+        const query: Record<string, any> = {};
+
+        if (q && typeof q === 'string' && q.trim()) {
+          const searchRegex = { $regex: q.trim(), $options: 'i' };
+          const orConditions: any[] = [
+            { customerName: searchRegex },
+            { customerEmail: searchRegex },
+            { customerPhone: searchRegex },
+            { customerAddress: searchRegex },
+          ];
+          if (ObjectId.isValid(q.trim())) {
+            orConditions.push({ _id: new ObjectId(q.trim()) });
+          }
+          query.$or = orConditions;
+        }
+
+        if (deliveryStatus && deliveryStatus !== 'all') {
+          if (deliveryStatus === 'active') {
+            query.deliveryStatus = { $nin: [/^delivered$/i] };
+          } else {
+            query.deliveryStatus = { $regex: new RegExp(`^${deliveryStatus}$`, 'i') };
+          }
+        }
+
+        if (status && status !== 'all') {
+          query.status = { $regex: new RegExp(`^${status}$`, 'i') };
+        }
+
+        const rawOrders = await ordersCollection.find(query).sort({ createdAt: -1 }).toArray();
+        const orders = rawOrders.sort((a: any, b: any) => {
+          const aDelivered = (a.deliveryStatus || '').toLowerCase().trim() === 'delivered';
+          const bDelivered = (b.deliveryStatus || '').toLowerCase().trim() === 'delivered';
+          if (!aDelivered && bDelivered) return -1;
+          if (aDelivered && !bDelivered) return 1;
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bTime - aTime;
+        });
+
         const totalOrders = orders.length;
         const totalRevenue = orders.reduce((sum: number, order: any) => sum + (Number(order.totalPrice) || 0), 0);
-        return res.json({ success: true, data: orders, totalOrders, totalRevenue });
+        const activeOrdersCount = orders.filter((o: any) => (o.deliveryStatus || '').toLowerCase().trim() !== 'delivered').length;
+        const deliveredOrdersCount = orders.filter((o: any) => (o.deliveryStatus || '').toLowerCase().trim() === 'delivered').length;
+
+        let finalOrders = orders;
+        let pagination = undefined;
+
+        if (page || limit) {
+          const pageNum = parseInt(page as string) || 1;
+          const limitNum = parseInt(limit as string) || 10;
+          const skip = (pageNum - 1) * limitNum;
+          finalOrders = orders.slice(skip, skip + limitNum);
+          pagination = {
+            totalItems: totalOrders,
+            totalPages: Math.ceil(totalOrders / limitNum) || 1,
+            currentPage: pageNum,
+            limit: limitNum,
+          };
+        }
+
+        return res.json({
+          success: true,
+          data: finalOrders,
+          totalOrders,
+          totalRevenue,
+          activeOrdersCount,
+          deliveredOrdersCount,
+          pagination,
+        });
       } catch (error) {
         return res.status(500).json({ success: false, error: "Failed to fetch all orders" });
       }
